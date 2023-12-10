@@ -25,8 +25,6 @@ var ResultsLogger *log.Logger
 
 type ZeroTraceResult struct {
 	DestinationIP	net.IP
-	ClosestPktTTL	uint8
-	ClosestPktIP	net.IP
 	RTT		time.Duration
 }
 
@@ -68,7 +66,7 @@ func getTCPHandler(config *tls.Config, iface string, port uint16) tcpHandler {
 		// because Atlas probes are going to terminate the connection as soon
 		// as the fetched the server certificate.
 		l.Printf("Starting traceroute to new peer: %s", conn.RemoteAddr())
-		closestTTL, closestIP, duration, err := zt.CalcRTT(conn)
+		duration, err := zt.CalcRTT(conn)
 		if err != nil {
 			l.Printf("Error running ZeroTrace: %v", err)
 			return
@@ -77,8 +75,6 @@ func getTCPHandler(config *tls.Config, iface string, port uint16) tcpHandler {
 
 		ztResults := ZeroTraceResult{
 			DestinationIP: conn.RemoteAddr(),
-			ClosestPktTTL: closestTTL,
-			ClosestPktIP: closestIP,
 			RTT: duration.Microseconds()
 			}
 
