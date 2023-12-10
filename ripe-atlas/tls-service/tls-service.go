@@ -21,6 +21,14 @@ import (
 )
 
 var l = log.New(os.Stderr, "tlssvc: ", log.Ldate|log.Lmicroseconds|log.LUTC|log.Lshortfile)
+var ResultsLogger *log.Logger
+
+type ZeroTraceResult struct {
+	DestinationIP	net.IP
+	ClosestPktTTL	uint8
+	ClosestPktIP	net.IP
+	RTT		time.Duration
+}
 
 type tcpHandler func(net.Conn)
 
@@ -60,13 +68,28 @@ func getTCPHandler(config *tls.Config, iface string, port uint16) tcpHandler {
 		// because Atlas probes are going to terminate the connection as soon
 		// as the fetched the server certificate.
 		l.Printf("Starting traceroute to new peer: %s", conn.RemoteAddr())
-		duration, err := zt.CalcRTT(conn)
+		closestTTL, closestIP, duration, err := zt.CalcRTT(conn)
 		if err != nil {
 			l.Printf("Error running ZeroTrace: %v", err)
 			return
 		}
 		l.Printf("measurement,%s,%d\n", conn.RemoteAddr(), duration.Microseconds())
 
+		ztResults := ZeroTraceResult{
+			DestinationIP: conn.RemoteAddr(),
+			ClosestPktTTL: closestTTL,
+			ClosestPktIP: closestIP,
+			RTT: duration.Microseconds()
+			}
+
+		ztObj, err := json.Marshal(ztResults)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resultString := string(ztObj)
+		ResultsLogger.Println(resultString)
+		
 		tlsConn := tls.Server(conn, config)
 		if err = tlsConn.Handshake(); err != nil {
 			if !errors.Is(err, io.EOF) {
@@ -86,12 +109,14 @@ func main() {
 		iface    string
 		addr     string
 		log      string
+		jsonLog  string
 	)
 	flag.StringVar(&certFile, "cert", "", "The TLS server's certificate file.")
 	flag.StringVar(&keyFile, "key", "", "The TLS server's key file.")
 	flag.StringVar(&iface, "iface", "", "The networking interface to use zerotrace for.")
 	flag.StringVar(&addr, "addr", "0.0.0.0:443", "The TLS server's address to listen on.")
-	flag.StringVar(&log, "log", "", "The log file to which stdout is written to.")
+	flag.StringVar(&log, "log", "", "The log file to which stdout is written.")
+	flag.StringVar(&jsonLog, "jsonResults", "", "The file to which results (in JSON) are written.")
 	flag.Parse()
 
 	if certFile == "" || keyFile == "" || iface == "" {
@@ -105,6 +130,18 @@ func main() {
 		defer f.Close()
 		l.SetOutput(io.MultiWriter(os.Stdout, f))
 	}
+	
+	file, err := os.OpenFile(jsonLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		l.Fatal(err)
+	}
+	ResultsLogger = log.New(file, "", 0)
+	
+	if domain == "" {
+		l.Fatal("Specify domain name by using the -domain flag.")
+	}
+	InfoLogger = log.New(file, "", 0)
+
 
 	addrPort := netip.MustParseAddrPort(addr)
 
