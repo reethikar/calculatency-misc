@@ -112,7 +112,7 @@ func main() {
 	flag.StringVar(&iface, "iface", "", "The networking interface to use zerotrace for.")
 	flag.StringVar(&addr, "addr", "0.0.0.0:443", "The TLS server's address to listen on.")
 	flag.StringVar(&log, "log", "", "The log file to which stdout is written.")
-	flag.StringVar(&jsonLog, "jsonResults", "", "The file to which results (in JSON) are written.")
+	flag.StringVar(&jsonLog, "jsonResults", "logFile.jsonl", "The file to which results (in JSON) are written.")
 	flag.Parse()
 
 	if certFile == "" || keyFile == "" || iface == "" {
