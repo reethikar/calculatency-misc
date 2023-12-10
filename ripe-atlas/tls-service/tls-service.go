@@ -25,7 +25,7 @@ var ResultsLogger *log.Logger
 
 type ZeroTraceResult struct {
 	DestinationIP	net.IP
-	RTT		time.Duration
+	RTT		int64
 }
 
 type tcpHandler func(net.Conn)
