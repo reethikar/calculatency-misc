@@ -9,7 +9,7 @@ import pathlib
 import logging as log
 import datetime as dt
 import zoneinfo as zi
-from typing import Callable, Any
+from typing import Callable, Any, List
 
 import ripe.atlas.cousteau as atlas
 from timezonefinder import TimezoneFinder
@@ -27,8 +27,8 @@ TAGS = "tags"
 STATUS = "status_name"
 LATITUDE, LONGITUDE = "latitude", "longitude"
 
-V4_TARGET = ""
-V6_TARGET = ""
+V4_TARGET = "141.212.123.65"
+V6_TARGET = "2607:f018:800:1:ec4:7aff:fee1:41c7"
 API_KEY = ""  # TODO
 GRACE_PERIOD = 60
 CC_LEN = 2  # Length of the ISO 3166 country code.
@@ -40,6 +40,7 @@ BAD_TAGS = [
     "cloud",
     "vps",
     "ixp",
+    "ipv6-only",
 ]
 GOOD_TAGS = [
     "deutsche-glasfaser",
@@ -154,7 +155,7 @@ MEASUREMENT_TIMES = [
 TZFinder = TimezoneFinder()
 
 
-def tags_are_bad(tags: list[str]) -> bool:
+def tags_are_bad(tags: List[str]) -> bool:
     """Return True if any of the probe's tags violate our selection criteria."""
     for tag in tags:
         if tag in BAD_TAGS:
@@ -197,7 +198,7 @@ def ready_for_measurement(t1: dt.time) -> bool:
     return False
 
 
-def filter_by_time(all_probes: list[dict]) -> list[dict]:
+def filter_by_time(all_probes: List[dict]) -> List[dict]:
     log.info("Filtering probes by time.")
     subset_probes = []
     num_not_time = 0
@@ -223,10 +224,10 @@ def filter_by_time(all_probes: list[dict]) -> list[dict]:
     return subset_probes
 
 
-def filter_by_eligibility(all_probes: list[dict]) -> list[dict]:
+def filter_by_eligibility(all_probes: List[dict]) -> List[dict]:
     """Return the subset of probes that are eligible for measurements."""
     log.info("Filtering probes by eligibility.")
-    num_bad_cc, num_bad_tags, num_bad_status, num_addrless = 0, 0, 0, 0
+    num_bad_cc, num_bad_tags, num_bad_status, num_addrless, num_ipv6only = 0, 0, 0, 0, 0
 
     subset_probes = []
     for probe in all_probes:
@@ -241,6 +242,9 @@ def filter_by_eligibility(all_probes: list[dict]) -> list[dict]:
             continue
         if probe[IPV4_ADDR] is None and probe[IPV6_ADDR] is None:
             num_addrless += 1
+            continue
+        if probe[IPV4_ADDR] is None:
+            num_ipv6only += 1
             continue
         if any([t in GOOD_TAGS for t in probe[TAGS]]):
             subset_probes.append(probe)
@@ -267,13 +271,18 @@ def filter_by_eligibility(all_probes: list[dict]) -> list[dict]:
         )
     )
     log.info(
+        "Skipped {:,} ({:.1f}%) probes because they do not have an ipv4 address".format(
+            num_ipv6only, pct(num_ipv6only, num_probes)
+        )
+    )
+    log.info(
         "Narrowed down {:,} probes to {:,}.".format(num_probes, len(subset_probes))
     )
 
     return subset_probes
 
 
-def load_probes(probe_file: str) -> list[dict]:
+def load_probes(probe_file: str) -> List[dict]:
     """Load the probes from the given JSON file."""
     log.info("Reading {}.".format(probe_file))
 
@@ -300,7 +309,7 @@ def run_icmp_traceroute(target: str):
     os.system(cmd)
 
 
-def create_measurements(target: str, ip_version: int) -> list[atlas.AtlasMeasurement]:
+def create_measurements(target: str, ip_version: int) -> List[atlas.Measurement]:
     """Return a set of measurements for the given target and IP version."""
     # We run three measurements per probe.
     description = "World-wide latency measurements"
@@ -329,7 +338,7 @@ def create_measurements(target: str, ip_version: int) -> list[atlas.AtlasMeasure
     ]
 
 
-def schedule_measurements(probes: list[dict]):
+def schedule_measurements(probes: List[dict]):
     """Schedule RIPE Atlas measurements for the given probes."""
     assert len(probes) > 0
 
@@ -364,7 +373,7 @@ def schedule_measurements(probes: list[dict]):
             run_icmp_traceroute(probe[IPV6_ADDR])
 
 
-def print_probes(our_probes: list[dict]):
+def print_probes(our_probes: List[dict]):
     """Print CSV data, with one ID,addr pair per line."""
     probe_by_id = {p[ID]: p for p in our_probes}
     for id in sorted(probe_by_id.keys()):
@@ -384,7 +393,7 @@ def sleep_until(datetime: dt.datetime):
     time.sleep(num_secs)
 
 
-def run_in_batches(probes: list[dict], func: Callable[[list], Any]):
+def run_in_batches(probes: List[dict], func: Callable[[List], Any]):
     """Process the given list of probes one batch at a time."""
     batch_size = 50
     for i in range(0, len(probes), batch_size):
